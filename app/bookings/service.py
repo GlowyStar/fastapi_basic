@@ -29,7 +29,7 @@ class BookingService:
         self,
         session: AsyncSession,
         booking_id: int
-    ) -> Optional[BookingResponse]:
+    ) -> BookingResponse:
         booking = await self.booking_repository.find_one_or_none(session, id=booking_id)
         if not booking:
             raise HTTPException(
@@ -66,16 +66,16 @@ class BookingService:
         session: AsyncSession,
         booking_id: int,
         update_data: BookingUpdate
-    ) -> Optional[BookingResponse]:
+    ) -> BookingResponse:
         # Проверка существования бронирования
-        existing_booking = await self.booking_repository.get_by_id(session, booking_id)
+        existing_booking = await self.booking_repository.find_one_or_none(session, id=booking_id)
         if not existing_booking:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Бронирование с id {booking_id} не найдено.",
             )
         # Проверка существования комнаты, если обновляется room_id
-        if update_data.room_id:
+        if update_data.room_id is not None:
             room = await self.room_repository.get_by_id(session, update_data.room_id)
             if not room:
                 raise HTTPException(
@@ -83,7 +83,7 @@ class BookingService:
                     detail=f"Комната с id {update_data.room_id} не существует.",
                 )
         # Проверка существования пользователя, если обновляется user_id
-        if update_data.user_id:
+        if update_data.user_id is not None:
             user = await self.user_repository.get_by_id(session, update_data.user_id)
             if not user:
                 raise HTTPException(
@@ -92,6 +92,11 @@ class BookingService:
                 )
         values = update_data.dict(exclude_unset=True)
         updated_booking = await self.booking_repository.update(session, booking_id, values)
+        if not updated_booking:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Не удалось обновить бронирование с id {booking_id}.",
+            )
         return BookingResponse.model_validate(updated_booking)
 
     async def delete(
@@ -100,13 +105,19 @@ class BookingService:
         booking_id: int
     ) -> bool:
         # Проверка существования бронирования
-        booking = await self.booking_repository.get_by_id(session, booking_id)
+        booking = await self.booking_repository.find_one_or_none(session, id=booking_id)
         if not booking:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Бронирование с id {booking_id} не найдено.",
             )
-        return await self.booking_repository.delete(session, booking_id)
+        deleted = await self.booking_repository.delete(session, booking_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Не удалось удалить бронирование с id {booking_id}.",
+            )
+        return True
 
     async def get_filtered(
         self,
